@@ -1,39 +1,50 @@
-// _worker.js - Pages Functions 后端 API
-// 使用 D1 数据库存储用户数据和积分
-
+// _worker.js - Pages Functions 完整版
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS 头
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
-    // 处理 OPTIONS 预检请求
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // ============================================================
-    //  GET /api/users - 获取所有用户（按积分排序）
-    // ============================================================
+    // ==================== 根路径 - 返回 API 信息 ====================
+    if (path === '/') {
+      return new Response(JSON.stringify({
+        status: 'ok',
+        message: 'API is running! 后端已部署成功',
+        endpoints: [
+          'GET /api/users - 获取所有用户',
+          'POST /api/users - 保存用户列表',
+          'GET /api/user/:name - 获取单个用户',
+          'PUT /api/user/:name - 更新用户积分',
+          'GET /api/config - 获取配置',
+          'POST /api/config - 保存配置',
+          'GET /api/rank/team - 战队排行榜',
+          'GET /api/rank/unit/:unit - 战队内部排行'
+        ]
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ==================== GET /api/users ====================
     if (path === '/api/users' && request.method === 'GET') {
       try {
-        const result = await env.DB.prepare(
-          'SELECT * FROM users ORDER BY totalScore DESC'
-        ).all();
-        
-        return new Response(JSON.stringify(result.results), {
+        const result = await env.DB.prepare('SELECT * FROM users ORDER BY totalScore DESC').all();
+        return new Response(JSON.stringify(result.results || []), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       } catch (e) {
         return new Response(JSON.stringify({ 
           error: e.message,
-          stack: e.stack 
+          hint: '请检查 D1 绑定是否正确，数据库名称为 quiz-db'
         }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -41,17 +52,15 @@ export default {
       }
     }
 
-    // ============================================================
-    //  POST /api/users - 批量保存用户（注册/更新）
-    // ============================================================
+    // ==================== POST /api/users ====================
     if (path === '/api/users' && request.method === 'POST') {
       try {
         const users = await request.json();
         
-        // 清空所有用户（简化处理，实际可用 upsert）
+        // 清空所有用户
         await env.DB.prepare('DELETE FROM users').run();
         
-        // 批量插入用户
+        // 插入每个用户
         for (const user of users) {
           await env.DB.prepare(`
             INSERT INTO users (
@@ -93,19 +102,14 @@ export default {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        return new Response(JSON.stringify({ 
-          error: e.message,
-          stack: e.stack 
-        }), {
+        return new Response(JSON.stringify({ error: e.message }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
     }
 
-    // ============================================================
-    //  GET /api/user/:name - 获取单个用户
-    // ============================================================
+    // ==================== GET /api/user/:name ====================
     if (path.startsWith('/api/user/') && request.method === 'GET') {
       try {
         const name = path.replace('/api/user/', '');
@@ -131,18 +135,14 @@ export default {
       }
     }
 
-    // ============================================================
-    //  PUT /api/user/:name - 更新用户积分
-    // ============================================================
+    // ==================== PUT /api/user/:name ====================
     if (path.startsWith('/api/user/') && request.method === 'PUT') {
       try {
         const name = path.replace('/api/user/', '');
         const userData = await request.json();
         
-        // 构建动态更新语句
         const fields = [];
         const values = [];
-        let idx = 1;
         
         const updateFields = {
           warmupScore: userData.warmupScore,
@@ -165,7 +165,6 @@ export default {
           if (value !== undefined && value !== null) {
             fields.push(`${key} = ?`);
             values.push(value);
-            idx++;
           }
         }
         
@@ -174,7 +173,6 @@ export default {
         const sql = `UPDATE users SET ${fields.join(', ')} WHERE name = ?`;
         await env.DB.prepare(sql).bind(...values).run();
         
-        // 返回更新后的用户
         const result = await env.DB.prepare(
           'SELECT * FROM users WHERE name = ?'
         ).bind(name).first();
@@ -190,9 +188,7 @@ export default {
       }
     }
 
-    // ============================================================
-    //  GET /api/config - 获取配置（使用 KV）
-    // ============================================================
+    // ==================== GET /api/config ====================
     if (path === '/api/config' && request.method === 'GET') {
       try {
         const config = await env.KV.get('app_config', 'json');
@@ -221,9 +217,7 @@ export default {
       }
     }
 
-    // ============================================================
-    //  POST /api/config - 保存配置
-    // ============================================================
+    // ==================== POST /api/config ====================
     if (path === '/api/config' && request.method === 'POST') {
       try {
         const config = await request.json();
@@ -239,9 +233,7 @@ export default {
       }
     }
 
-    // ============================================================
-    //  GET /api/rank/team - 战队排行榜
-    // ============================================================
+    // ==================== GET /api/rank/team ====================
     if (path === '/api/rank/team' && request.method === 'GET') {
       try {
         const result = await env.DB.prepare(`
@@ -251,7 +243,7 @@ export default {
           ORDER BY totalScore DESC
         `).all();
         
-        return new Response(JSON.stringify(result.results), {
+        return new Response(JSON.stringify(result.results || []), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       } catch (e) {
@@ -262,9 +254,7 @@ export default {
       }
     }
 
-    // ============================================================
-    //  GET /api/rank/unit/:unit - 战队内部排行
-    // ============================================================
+    // ==================== GET /api/rank/unit/:unit ====================
     if (path.startsWith('/api/rank/unit/') && request.method === 'GET') {
       try {
         const unit = path.replace('/api/rank/unit/', '');
@@ -274,7 +264,7 @@ export default {
           ORDER BY totalScore DESC
         `).bind(unit).all();
         
-        return new Response(JSON.stringify(result.results), {
+        return new Response(JSON.stringify(result.results || []), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       } catch (e) {
@@ -285,9 +275,7 @@ export default {
       }
     }
 
-    // ============================================================
-    //  404 - 未找到
-    // ============================================================
+    // ==================== 404 ====================
     return new Response(JSON.stringify({ 
       error: 'Not Found', 
       path: path,
